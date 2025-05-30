@@ -1,6 +1,6 @@
-const puppeteer = require("puppeteer");
+import puppeteer from "puppeteer";
 
-async function getSaleInfoFromMls(mlsId) {
+export const getSaleInfoFromMls = async (mlsId) => {
   const url = `https://www.mlslistings.com/Property/${mlsId}`;
   const browser = await puppeteer.launch({ headless: "new" });
   const page = await browser.newPage();
@@ -27,5 +27,21 @@ async function getSaleInfoFromMls(mlsId) {
   }
 }
 
-// Example usage
-getSaleInfoFromMls("ML81952283").then(console.log);
+export const rankGuesses = (guesses, soldPrice) => {
+  // Convert to array of [userId, diff]
+  const diffs = Object.entries(guesses).map(([userId, price]) => {
+    return { userId, diff: Math.abs(price - soldPrice) };
+  });
+
+  // Sort by absolute difference (ascending)
+  diffs.sort((a, b) => a.diff - b.diff);
+
+  // Assign ranks
+  const ranks = {};
+  diffs.forEach((entry, index) => {
+    ranks[entry.userId] = index + 1; // rank starts from 1
+  });
+
+  return ranks;
+}
+

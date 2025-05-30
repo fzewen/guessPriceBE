@@ -8,20 +8,66 @@
  */
 
 // The Cloud Functions for Firebase SDK to create Cloud Functions and triggers.
-const {logger} = require("firebase-functions");
-const {onRequest} = require("firebase-functions/v2/https");
-const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+import { logger } from "firebase-functions";
+import { onRequest } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 
-// The Firebase Admin SDK to access Firestore.
-const {initializeApp} = require("firebase-admin/app");
-const {getFirestore} = require("firebase-admin/firestore");
-const cors = require("cors")({origin: true}); // Allows all origins
+import { initializeApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+import corsLib from "cors";
+const cors = corsLib({ origin: true });
 
-initializeApp();
+import PromisePool from "es6-promise-pool";
+// Maximum concurrent account deletions.
+const MAX_CONCURRENT = 3;
+import { getSaleInfoFromMls, rankGuesses } from './scrape.js';
+
+// local test
+initializeApp({
+  projectId: 'guessprice-a08ba'
+});
+// initializeApp();
+
+export const updateData = async (data) => {
+  console.log(data);
+  // * here we need transaction call and batch
+  try {
+    // update user table
+    let usersUpdate = {};
+    usersUpdate[`guesses.${data.mlsId}`] = data.price;
+    console.log(usersUpdate);
+    const userResult = await getFirestore()
+        .collection("users")
+        .doc(data.userId)
+        .update(usersUpdate, { merge: true });
+
+    // update guess table
+    let guessUpdate = {};
+    guessUpdate[`guesses.${data.userId}`] = data.price;
+    console.log(guessUpdate);
+    const guessResult = await getFirestore()
+        .collection("guesses")
+        .doc(data.mlsId)
+        .update(guessUpdate, { merge: true });
+
+    // update active mls list
+    let mlsUpdate = {};
+    mlsUpdate[`lastAcessTime`] = Date.now();
+    mlsUpdate[`status`] = 'Active';
+    console.log(mlsUpdate);
+    const mlsResult = await getFirestore()
+        .collection("mls")
+        .doc(data.mlsId)
+        .update(mlsUpdate, { merge: true });
+    return {result: `Success`};
+  } catch (error) {
+    return {error: error.message};
+  }
+}
 
 // Take the text parameter passed to this HTTP endpoint and insert it into
 // Firestore under the path /messages/:documentId/original
-exports.addGuess = onRequest((req, res) => {
+export const addGuess = onRequest((req, res) => {
   cors(req, res, async () => {
     const data = req.body.data;
 
@@ -29,87 +75,61 @@ exports.addGuess = onRequest((req, res) => {
       res.status(400).json({error: "Missing data field"});
       return;
     }
+    // * here we need transaction call and batch
+    const result = await updateData(data);
+    if (result.error) {
+      return res.status(500).json(result);
+    }
+    return res.json(result);
+  });
+});
 
-    console.log(data);
-    // here we need transaction call
-    try {
-      // update user table
-      let usersUpdate = {};
-      usersUpdate[`guesses.${data.mlsId}`] = data.price;
-      console.log(usersUpdate);
-      const userResult = await getFirestore()
-          .collection("users")
-          .doc(data.userId)
-          .update(usersUpdate, { merge: true });
+// Run once a day at midnight, to scrape website
+// Manually run the task here https://console.cloud.google.com/cloudscheduler
+export const scrapeWeb = onSchedule("every day 00:00", async (event) => {
+  // Use a pool so that we delete maximum `MAX_CONCURRENT` users in parallel.
+  const promisePool = new PromisePool(
+      async () => handleActiveListing(),
+      MAX_CONCURRENT,
+  );
+  await promisePool.start();
 
-      // update guess table
-      let guessUpdate = {};
-      guessUpdate[`guesses.${data.userId}`] = data.price;
-      console.log(guessUpdate);
-      const guessResult = await getFirestore()
-          .collection("guesses")
-          .doc(data.mlsId)
-          .update(guessUpdate, { merge: true });
+  logger.log("active listing scraped & hanled");
+});
 
-      // update active mls list
+export const handleActiveListing = async () => {
+  // fetch all active lisitng
+  const activeList = await getFirestore().collection('mls').where('status', '==', 'Active').get();
+  if (activeList.empty) {
+    console.log('No matching documents.');
+    return;
+  }
+  // * need concurrency handling
+  activeList.forEach(async(doc) => {
+    const result = await getSaleInfoFromMls(doc.id);
+    if (result.status == 'Sold') {
+      // do computation
+      const guesses = await getFirestore().collection('guesses').doc(doc.id).get();
+      const ranks = rankGuesses(guesses, result.price);
+      // set mls status
       let mlsUpdate = {};
-      mlsUpdate[`lastAcessTime`] = Date.now();
-      mlsUpdate[`status`] = 'Active';
+      mlsUpdate[`status`] = 'Sold';
+      mlsUpdate[`winPrice`] = result.price;
       console.log(mlsUpdate);
       const mlsResult = await getFirestore()
           .collection("mls")
-          .doc(data.mlsId)
+          .doc(doc.id)
           .update(mlsUpdate, { merge: true });
-      res.json({result: `Success`});
-    } catch (error) {
-      res.status(500).json({error: error.message});
+      // set user rank
+      ranks.forEach(async(userId, rank) => {
+        let usersUpdate = {};
+        usersUpdate[`guesses.${doc.mlsId}.rank`] = rank
+        console.log(usersUpdate);
+        const userResult = await getFirestore()
+            .collection("users")
+            .doc(userId)
+            .update(usersUpdate, { merge: true });
+      });
     }
   });
-});
-
-
-// Take the text parameter passed to this HTTP endpoint and insert it into
-// Firestore under the path /messages/:documentId/original
-exports.addMessage = onRequest((req, res) => {
-  cors(req, res, async () => {
-    const original = req.query.text;
-
-    if (typeof original !== "string") {
-      res.status(400).json({error: "Missing or invalid 'text' parameter."});
-      return;
-    }
-
-    try {
-      const writeResult = await getFirestore()
-          .collection("messages")
-          .add({original});
-
-      res.json({result: `Message with ID: ${writeResult.id} added.`});
-    } catch (error) {
-      res.status(500).json({error: "Internal Server Error"});
-    }
-  });
-});
-
-// Listens for new messages added to /messages/:documentId
-// and saves an uppercased version of the message
-// to /messages/:documentId/uppercase
-exports.makeUppercase = onDocumentCreated("/messages/{documentId}", (event) => {
-  const original = event.data.data().original;
-
-  if (typeof original !== "string") {
-    logger.warn(
-        "No valid 'original' field in document:",
-        event.params.documentId,
-    );
-    return null;
-  }
-
-  const uppercase = original.toUpperCase();
-
-  logger.log("Uppercasing", event.params.documentId, original);
-  logger.log("New value", uppercase);
-
-  return event.data.ref.set({uppercase}, {merge: true});
-});
-
+}

@@ -12,7 +12,7 @@ import { logger } from "firebase-functions";
 import { onRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 
-import { initializeApp } from "firebase-admin/app";
+import { initializeApp, applicationDefault } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import corsLib from "cors";
 const cors = corsLib({ origin: true });
@@ -23,9 +23,7 @@ const MAX_CONCURRENT = 3;
 import { getSaleInfoFromMls, rankGuesses } from './scrape.js';
 
 // local test
-initializeApp({
-  projectId: 'guessprice-a08ba'
-});
+initializeApp();
 // initializeApp();
 
 export const updateData = async (data) => {
@@ -34,7 +32,7 @@ export const updateData = async (data) => {
   try {
     // update user table
     let usersUpdate = {};
-    usersUpdate[`guesses.${data.mlsId}`] = data.price;
+    usersUpdate[`guesses.${data.mlsId}.price`] = data.price;
     console.log(usersUpdate);
     const userResult = await getFirestore()
         .collection("users")
@@ -110,26 +108,43 @@ export const handleActiveListing = async () => {
     if (result.status == 'Sold') {
       // do computation
       const guesses = await getFirestore().collection('guesses').doc(doc.id).get();
-      const ranks = rankGuesses(guesses, result.price);
+      console.log("------");
+      console.log(guesses.data().guesses);
+      console.log(result.price);
+      console.log("------");
+      const numericStr = result.price.replace(/[^0-9.]/g, ""); // "1580000"
+      const priceNumber = Number(numericStr); // 1580000
+      const ranks = rankGuesses(guesses.data().guesses, priceNumber);
       // set mls status
       let mlsUpdate = {};
       mlsUpdate[`status`] = 'Sold';
-      mlsUpdate[`winPrice`] = result.price;
-      console.log(mlsUpdate);
-      const mlsResult = await getFirestore()
-          .collection("mls")
-          .doc(doc.id)
-          .update(mlsUpdate, { merge: true });
+      mlsUpdate[`soldPrice`] = priceNumber;
+
       // set user rank
-      ranks.forEach(async(userId, rank) => {
+      for (const [userId, [rank, price]] of Object.entries(ranks)) {
+        if (rank == 1) {
+          mlsUpdate[`winPrice`] = price;
+          mlsUpdate[`winUser`] = userId;
+        }
         let usersUpdate = {};
-        usersUpdate[`guesses.${doc.mlsId}.rank`] = rank
+        usersUpdate[`guesses.${doc.id}.rank`] = rank
         console.log(usersUpdate);
         const userResult = await getFirestore()
             .collection("users")
             .doc(userId)
             .update(usersUpdate, { merge: true });
-      });
+      }
+
+      console.log(mlsUpdate);
+      const mlsResult = await getFirestore()
+          .collection("mls")
+          .doc(doc.id)
+          .update(mlsUpdate, { merge: true });
     }
   });
 }
+
+// const result1 = await updateData({userId: '1', mlsId: 'ML81952283', price: 1500000});
+// const result2 = await updateData({userId: '2', mlsId: 'ML81952283', price: 1200000});
+// const result3 = await updateData({userId: '3', mlsId: 'ML81952283', price: 1300000});
+// const result = await handleActiveListing();

@@ -6,6 +6,7 @@ export const getSaleInfoFromMls = async (mlsId) => {
   const url = `https://www.mlslistings.com/Property/${mlsId}`;
   const browser = await puppeteer.launch({ headless: "new" });
   const page = await browser.newPage();
+  // * still print out twice
   console.log("STARTED IN NODE", counter);
 
   try {

@@ -13,7 +13,7 @@ import { onRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 
 import { initializeApp, applicationDefault } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore} from "firebase-admin/firestore";
 import corsLib from "cors";
 const cors = corsLib({ origin: true });
 
@@ -24,7 +24,42 @@ import { getSaleInfoFromMls, rankGuesses } from './scrape.js';
 
 // local test
 initializeApp();
-// initializeApp();
+
+export const loadResult = onRequest((req, res) => {
+  cors(req, res, async () => {
+    try {
+      const mlsIds = Array.isArray(req.query.mls) ? req.query.mls : [req.query.mls];
+      const userId = req.query.userId;
+      // filter out sold mlsIds
+
+      console.log(mlsIds);
+      console.log(userId);
+
+      const querySnapshot = await getFirestore().collection("mls")
+        .where("status", "==", "Sold")
+        .where("__name__", "in", mlsIds)
+        .get();
+      const user = await getFirestore().collection("users").doc(userId).get();
+      // set winPrice and user rank
+      let result = [];
+      console.log(user.data());
+      querySnapshot.forEach((doc) => {
+        const mlsId = doc.id;
+        const data = doc.data();
+        result.push({
+          mlsId: mlsId,
+          winPrice: data.winPrice,
+          rank: user.data()?.guesses[mlsId]?.rank ?? null  // safe access in case it's missing
+        });
+      });
+      console.log("hereeeeeee");
+      console.log(result);
+      return res.json(result);
+    } catch(error) {
+      return res.status(500).json(error);
+    }
+  });
+});
 
 export const updateData = async (data) => {
   console.log(data);

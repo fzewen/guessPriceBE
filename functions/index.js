@@ -25,6 +25,25 @@ import { getSaleInfoFromMls, rankGuesses } from './scrape.js';
 // local test
 initializeApp();
 
+// Take the text parameter passed to this HTTP endpoint and insert it into
+// Firestore under the path /messages/:documentId/original
+export const addGuess = onRequest((req, res) => {
+  cors(req, res, async () => {
+    const data = req.body.data;
+
+    if (!data) {
+      res.status(400).json({error: "Missing data field"});
+      return;
+    }
+    // * here we need transaction call and batch
+    const result = await updateData(data);
+    if (result.error) {
+      return res.status(500).json(result);
+    }
+    return res.json(result);
+  });
+});
+
 export const loadResult = onRequest((req, res) => {
   cors(req, res, async () => {
     try {
@@ -61,6 +80,35 @@ export const loadResult = onRequest((req, res) => {
   });
 });
 
+export const fetchTop = onRequest((req, res) => {
+  cors(req, res, async () => {
+    try {
+      const userId = req.query.userId;
+      const limit = req.query.limit ? Number(req.query.limit) : 5;
+      const topMLS = await getFirestore().collection("mls")
+        .where("status", "==", "Active")
+        .orderBy("accessCnt", 'desc')
+        .limit(limit)
+        .get();
+      // console.log("ddddddddd");
+      // console.log(topMLS.empty);
+      // console.log(topMLS.size);
+      // console.log(topMLS);
+      // console.log("eeeeee");
+      let result = {};
+      topMLS.forEach(doc => {
+        result[doc.id] = doc.data();
+      });
+      
+      console.log('why no resulttttt');
+      console.log(result);
+      return res.json(result);
+    } catch(error) {
+      return res.status(500).json(error);
+    }
+  });
+});
+
 export const updateData = async (data) => {
   console.log(data);
   // * here we need transaction call and batch
@@ -87,6 +135,29 @@ export const updateData = async (data) => {
     let mlsUpdate = {};
     mlsUpdate[`lastAcessTime`] = Date.now();
     mlsUpdate[`status`] = 'Active';
+
+    const mls = await getFirestore()
+        .collection("mls")
+        .doc(data.mlsId)
+        .get();
+
+    // what other info is needed
+    // 1. address
+    // 2. listing price
+    // 3. link
+    // I don't like this, fundmentally the website miss a mlsID to link translate
+    console.log('...........');
+    console.log(mls.data());
+    console.log(mls.exists);
+
+    if (!mls.exists) {
+      mlsUpdate[`accessCnt`] = 1;
+    } else {
+      mlsUpdate[`accessCnt`] = mls.data().accessCnt + 1;
+    }
+
+    mlsUpdate[`lastAcessTime`] = Date.now();
+    mlsUpdate[`status`] = 'Active';
     console.log(mlsUpdate);
     const mlsResult = await getFirestore()
         .collection("mls")
@@ -97,25 +168,6 @@ export const updateData = async (data) => {
     return {error: error.message};
   }
 }
-
-// Take the text parameter passed to this HTTP endpoint and insert it into
-// Firestore under the path /messages/:documentId/original
-export const addGuess = onRequest((req, res) => {
-  cors(req, res, async () => {
-    const data = req.body.data;
-
-    if (!data) {
-      res.status(400).json({error: "Missing data field"});
-      return;
-    }
-    // * here we need transaction call and batch
-    const result = await updateData(data);
-    if (result.error) {
-      return res.status(500).json(result);
-    }
-    return res.json(result);
-  });
-});
 
 // Run once a day at midnight, to scrape website
 // Manually run the task here https://console.cloud.google.com/cloudscheduler

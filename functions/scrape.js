@@ -4,21 +4,38 @@ let counter = 0;
 export const getSaleInfoFromMls = async (mlsId) => {
   counter++;
   const url = `https://www.mlslistings.com/Property/${mlsId}`;
-  const browser = await puppeteer.launch({ headless: "new" });
+
+
+  const browser = await puppeteer.launch({
+    headless: "new",
+    executablePath: puppeteer.executablePath(), // Use Puppeteer's bundled Chromium
+  });
+
   const page = await browser.newPage();
-  // * still print out twice
+
+  // Capture browser console logs and print them in Node.js
+  page.on("console", (msg) => {
+    console.log("BROWSER LOG:", msg.text());
+  });
+
   console.log("STARTED IN NODE", counter);
 
   try {
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 5000 });
 
     const data = await page.evaluate(() => {
-      const status = document.getElementsByClassName('status-closed')[0]? "Sold" : "Unknown";
+      // Match elements with class names starting with "status-"
+      console.log("page.evaluate......"); // This will now be captured
+      const statusElements = document.querySelectorAll('[class*=" status-"]');
+      console.log("statusElements", statusElements.length); // This will now be captured
+      const status = statusElements.length > 0 ? statusElements[0].textContent.trim() : "Unknown";
+
       const priceMatch = document
         .querySelector('meta[name="description"]')
-        .getAttribute('content')
-        .match(/\$\d{1,3}(,\d{3})*(\.\d{2})?/);
+        ?.getAttribute('content')
+        ?.match(/\$\d{1,3}(,\d{3})*(\.\d{2})?/);
       const price = priceMatch?.[0] || "Unknown";
+
       return { status, price };
     });
 

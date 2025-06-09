@@ -136,6 +136,7 @@ export const handleActiveListing = async () => {
 
   activeList.forEach(async (doc) => {
     const result = await getSaleInfoFromMls(doc.id);
+    console.log("Scraped result:", result);
 
     if (result.status === "Sold") {
       const guesses = await getFirestore().collection("guesses").doc(doc.id).get();
@@ -164,8 +165,8 @@ export const handleActiveListing = async () => {
   });
 };
 
-// const result1 = await updateData({userId: '1', mlsId: 'ML81952283', price: 1500000});
-// const result2 = await updateData({userId: '2', mlsId: 'ML81952283', price: 1200000});
-// const result3 = await updateData({userId: '3', mlsId: 'ML81952283', price: 1300000});
+// const result1 = await updateData({userId: '1', mlsId: 'ML81982609', price: 1500000});
+// const result2 = await updateData({userId: '2', mlsId: 'ML81982609', price: 1200000});
+// const result3 = await updateData({userId: '3', mlsId: 'ML81982609', price: 1300000});
 // const result4 = await updateData({userId: '4', mlsId: 'ML81952222', price: 1000000});
 // const result = await handleActiveListing();

@@ -138,9 +138,9 @@ export const handleActiveListing = async () => {
     const result = await getSaleInfoFromMls(doc.id);
     console.log("Scraped result:", result);
 
-    if (result.status === "Sold") {
+    if (result.status === "Closed") {
       const guesses = await getFirestore().collection("guesses").doc(doc.id).get();
-      const priceNumber = Number(result.price.replace(/[^0-9.]/g, ""));
+      const priceNumber = Number(result.price);
       const ranks = rankGuesses(guesses.data().guesses, priceNumber);
 
       const mlsUpdate = {
@@ -165,8 +165,8 @@ export const handleActiveListing = async () => {
   });
 };
 
-// const result1 = await updateData({userId: '1', mlsId: 'ML81982609', price: 1500000});
-// const result2 = await updateData({userId: '2', mlsId: 'ML81982609', price: 1200000});
-// const result3 = await updateData({userId: '3', mlsId: 'ML81982609', price: 1300000});
+// const result1 = await updateData({userId: '1', mlsId: 'ML81956743', price: 1500000});
+// const result2 = await updateData({userId: '2', mlsId: 'ML81956743', price: 1200000});
+// const result3 = await updateData({userId: '3', mlsId: 'ML81956743', price: 1300000});
 // const result4 = await updateData({userId: '4', mlsId: 'ML81952222', price: 1000000});
 // const result = await handleActiveListing();

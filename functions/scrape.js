@@ -1,46 +1,26 @@
-import puppeteer from "puppeteer";
-
-let counter = 0;
-
 export const getSaleInfoFromMls = async (mlsId) => {
-  counter++;
-  const url = `https://www.mlslistings.com/Property/${mlsId}`;
-
-  const browser = await puppeteer.launch({
-    headless: "new",
-    executablePath: puppeteer.executablePath(), // Use Puppeteer's bundled Chromium
-  });
-
-  const page = await browser.newPage();
-
-  // Capture browser console logs
-  page.on("console", (msg) => console.log("BROWSER LOG:", msg.text()));
-
-  console.log("STARTED IN NODE", counter);
+  const url = `https://www.mlslistings.com/api/listing/basic/${mlsId}`;
 
   try {
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 5000 });
+    const response = await fetch(url);
+    const data = await response.json();
+    console.log('Fetched data:', data);
 
-    const data = await page.evaluate(() => {
-      const statusElements = document.querySelectorAll('[class*=" status-"]');
-      const status = statusElements.length > 0 ? statusElements[0].textContent.trim() : "Unknown";
+    let price = "Unknown";
+    let status = "Unknown";
 
-      const priceMatch = document
-        .querySelector('meta[name="description"]')
-        ?.getAttribute('content')
-        ?.match(/\$\d{1,3}(,\d{3})*(\.\d{2})?/);
-      const price = priceMatch?.[0] || "Unknown";
+    if (data && data.listings && data.listings.length > 0) {
+      price = data.listings[0].price;
+      status = data.listings[0].status;
+    }
 
-      return { status, price };
-    });
-
-    return { mlsId, ...data };
-  } catch (err) {
-    return { mlsId, status: "Error", price: "Error", error: err.message };
-  } finally {
-    await browser.close();
+    console.log('Parsed price:', price, 'Status:', status);
+    return { status, price, error: null };
+  } catch (error) {
+    console.error('Fetch error:', error);
+    return { status: "Error", price: "Error", error: error.message };
   }
-};
+}
 
 export const rankGuesses = (guesses, soldPrice) => {
   const diffs = Object.entries(guesses).map(([userId, price]) => ({

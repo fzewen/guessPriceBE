@@ -77,7 +77,7 @@ export const fetchTop = onRequest((req, res) => {
 
       const topMLS = await getFirestore()
         .collection("mls")
-        .where("status", "==", "Active")
+        .where("status", "!=", "Sold")
         .orderBy("accessCnt", "desc")
         .limit(limit)
         .get();
@@ -104,11 +104,30 @@ export const updateData = async (data) => {
     await getFirestore().collection("guesses").doc(data.mlsId).update(guessUpdate, { merge: true });
 
     const mlsDoc = await getFirestore().collection("mls").doc(data.mlsId).get();
+    let accessCnt = 1;
+    let status = "Active";
+    if (mlsDoc.exists) {
+      accessCnt = mlsDoc.data().accessCnt + 1;
+      status = mlsDoc.data().status;
+    }
+    // User submit data
+    // const data = {
+    //   mlsId: mlsId,
+    //   price: price,
+    //   url: curUrl,
+    //   status: status,
+    //   updateTime: Date.now(),
+    //   img: propertyImg,
+    //   address: address,
+    // };
+
     const mlsUpdate = {
       lastAcessTime: Date.now(),
-      status: "Active", // Assuming the status is always "Active" when updating as we will need to scrape the website
+      status: status, // Assuming the status is always "Active" when updating as we will need to scrape the website
       url: data.url ?? "",
-      accessCnt: mlsDoc.exists ? mlsDoc.data().accessCnt + 1 : 1
+      accessCnt: accessCnt,
+      img: data.img ?? "",
+      address: data.address ?? "",
     };
 
     await getFirestore().collection("mls").doc(data.mlsId).update(mlsUpdate, { merge: true });
@@ -127,7 +146,7 @@ export const scrapeWeb = onSchedule("every day 00:00", async () => {
 
 // Handle active MLS listings
 export const handleActiveListing = async () => {
-  const activeList = await getFirestore().collection("mls").where("status", "==", "Active").get();
+  const activeList = await getFirestore().collection("mls").where("status", "!=", "Sold").get();
 
   if (activeList.empty) {
     console.log("No matching documents.");
@@ -147,7 +166,8 @@ export const handleActiveListing = async () => {
         status: "Sold",
         soldPrice: priceNumber,
         winPrice: null,
-        winUser: null
+        winUser: null,
+        closedTime: Date.now(),
       };
 
       for (const [userId, [rank, price]] of Object.entries(ranks)) {
@@ -161,6 +181,13 @@ export const handleActiveListing = async () => {
       }
 
       await getFirestore().collection("mls").doc(doc.id).update(mlsUpdate, { merge: true });
+    } else {
+      const mlsUpdate = {
+        status: result.status,
+        price: Number(result.price),
+        lastScrapedTime: Date.now(),
+      };
+      await getFirestore().collection("mls").doc(doc.id).update(mlsUpdate, { merge: true });
     }
   });
 };
@@ -169,4 +196,5 @@ export const handleActiveListing = async () => {
 // const result2 = await updateData({userId: '2', mlsId: 'ML81956743', price: 1200000});
 // const result3 = await updateData({userId: '3', mlsId: 'ML81956743', price: 1300000});
 // const result4 = await updateData({userId: '4', mlsId: 'ML81952222', price: 1000000});
+// const result4 = await updateData({userId: '5', mlsId: 'ML82004619', price: 1000000});
 // const result = await handleActiveListing();
